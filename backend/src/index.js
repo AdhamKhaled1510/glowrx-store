@@ -14,11 +14,21 @@ app.use('/api/auth', authRouter);
 app.use('/api/orders', ordersRouter);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+app.get('/api/debug', (req, res) => {
+  try {
+    const { dbAll } = require('./db.js');
+    const cats = dbAll('SELECT * FROM categories');
+    res.json({ cats, ready, initPromise: !!initPromise });
+  } catch(e) {
+    res.json({ error: e.message, stack: e.stack });
+  }
+});
 
 let ready = false;
 let initPromise = null;
 
 app.use((req, res, next) => {
+  if (req.path === '/api/health') return next();
   if (ready) return next();
   if (!initPromise) {
     initPromise = initDb().then(() => {
