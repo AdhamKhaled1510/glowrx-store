@@ -1,0 +1,91 @@
+name: Build Desktop App
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
+
+      - run: npm ci
+
+      - run: npx electron-builder --linux --x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GlowRX-Manager-Linux
+          path: desktop/dist/*.AppImage
+
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
+
+      - run: npm ci
+
+      - run: npx electron-builder --win --x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GlowRX-Manager-Windows
+          path: desktop/dist/*.exe
+
+  create-release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: GlowRX-Manager-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          tag_name: ${{ github.ref_name }}
+          name: GlowRX Manager ${{ github.ref_name }}
+          body: |
+            ## GlowRX Manager - برنامج إدارة المتجر
+
+            ### التحميل:
+            - **Windows**: `GlowRX Manager Setup-*.exe`
+            - **Linux**: `GlowRX Manager-*.AppImage`
+
+            ### طريقة الاستخدام:
+            1. حمل الملف المناسب لنظامك
+            2. Linux: `chmod +x "GlowRX Manager-*.AppImage"` ثم شغله
+            3. Windows: شغل الـ Setup.exe ونصبه
+
+            ### بيانات الدخول:
+            - الإيميل: `admin@glowrx.com`
+            - كلمة المرور: `admin123`
