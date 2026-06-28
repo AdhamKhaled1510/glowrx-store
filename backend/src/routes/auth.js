@@ -18,7 +18,7 @@ function generateCode() {
   return crypto.randomInt(100000, 999999).toString();
 }
 
-router.post('/register', (req, res) => {
+router.post('/register', async (req, res) => {
   const name = sanitize(req.body.name);
   const email = (req.body.email || '').toLowerCase().trim();
   const password = req.body.password;
@@ -28,33 +28,33 @@ router.post('/register', (req, res) => {
   if (name.length < 2 || name.length > 50) return res.status(400).json({ error: 'Name must be between 2 and 50 characters' });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email format' });
   if (password.length < 6 || password.length > 128) return res.status(400).json({ error: 'Password must be between 6 and 128 characters' });
-  const existing = dbGet('SELECT id FROM users WHERE email = ?', [email]);
+  const existing = await dbGet('SELECT id FROM users WHERE email = ?', [email]);
   if (existing) return res.status(400).json({ error: 'Email already exists' });
   const hashed = bcrypt.hashSync(password, 10);
-  const result = dbRun('INSERT INTO users (name, email, password, phone, address) VALUES (?, ?, ?, ?, ?)', [name, email, hashed, phone || null, address || null]);
+  const result = await dbRun('INSERT INTO users (name, email, password, phone, address) VALUES (?, ?, ?, ?, ?)', [name, email, hashed, phone || null, address || null]);
   const verifyCode = generateCode();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-  dbRun('UPDATE users SET verification_code = ?, verification_expires_at = ? WHERE id = ?', [verifyCode, expiresAt, result.lastInsertRowid]);
+  await dbRun('UPDATE users SET verification_code = ?, verification_expires_at = ? WHERE id = ?', [verifyCode, expiresAt, result.lastInsertRowid]);
   const token = jwt.sign({ id: result.lastInsertRowid, email, role: 'customer' }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
   res.json({ token, user: { id: result.lastInsertRowid, name, email, role: 'customer', email_verified: 0 } });
 });
 
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res) => {
   const email = (req.body.email || '').toLowerCase().trim();
   const password = req.body.password;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
-  const user = dbGet('SELECT * FROM users WHERE email = ?', [email]);
+  const user = await dbGet('SELECT * FROM users WHERE email = ?', [email]);
   if (!user || !bcrypt.compareSync(password, user.password)) return res.status(401).json({ error: 'Invalid credentials' });
   const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
   res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, email_verified: user.email_verified } });
 });
 
-router.get('/profile', (req, res) => {
+router.get('/profile', async (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'No token' });
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const user = dbGet('SELECT id, name, email, phone, address, role, email_verified FROM users WHERE id = ?', [decoded.id]);
+    const user = await dbGet('SELECT id, name, email, phone, address, role, email_verified FROM users WHERE id = ?', [decoded.id]);
     res.json(user);
   } catch { res.status(401).json({ error: 'Invalid token' }); }
 });
@@ -65,12 +65,12 @@ router.post('/send-verification', async (req, res) => {
   if (!token) return res.status(401).json({ error: 'No token' });
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const user = dbGet('SELECT * FROM users WHERE id = ?', [decoded.id]);
+    const user = await dbGet('SELECT * FROM users WHERE id = ?', [decoded.id]);
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.email_verified) return res.json({ message: 'Email already verified' });
     const code = generateCode();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-    dbRun('UPDATE users SET verification_code = ?, verification_expires_at = ? WHERE id = ?', [code, expiresAt, user.id]);
+    await dbRun('UPDATE users SET verification_code = ?, verification_expires_at = ? WHERE id = ?', [code, expiresAt, user.id]);
     const smtpHost = process.env.SMTP_HOST;
     if (smtpHost) {
       try {
@@ -98,18 +98,18 @@ router.post('/send-verification', async (req, res) => {
 });
 
 // Verify email
-router.post('/verify-email', (req, res) => {
+router.post('/verify-email', async (req, res) => {
   const { code } = req.body;
   const token = req.headers.authorization?.split(' ')[1];
   if (!token || !code) return res.status(400).json({ error: 'Token and code required' });
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const user = dbGet('SELECT * FROM users WHERE id = ?', [decoded.id]);
+    const user = await dbGet('SELECT * FROM users WHERE id = ?', [decoded.id]);
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.email_verified) return res.json({ message: 'Already verified' });
     if (user.verification_expires_at && new Date(user.verification_expires_at) < new Date()) return res.status(400).json({ error: 'Code expired, request a new one' });
     if (user.verification_code !== code) return res.status(400).json({ error: 'Invalid code' });
-    dbRun('UPDATE users SET email_verified = 1, verification_code = NULL WHERE id = ?', [user.id]);
+    await dbRun('UPDATE users SET email_verified = 1, verification_code = NULL WHERE id = ?', [user.id]);
     res.json({ message: 'Email verified' });
   } catch { res.status(401).json({ error: 'Invalid token' }); }
 });
@@ -132,7 +132,6 @@ router.get('/google/callback', async (req, res) => {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   const redirectUri = process.env.GOOGLE_REDIRECT_URI || 'https://cosmetics-store-api.vercel.app/api/auth/google/callback';
   const frontendUrl = process.env.FRONTEND_URL || 'https://adhamkhaled1510.github.io/glowrx-store';
-  // Check if state contains a custom redirect (from mobile app)
   let customRedirect = null;
   if (state) { try { const decoded = Buffer.from(state, 'base64').toString(); if (decoded.startsWith('http') || decoded.startsWith('glowrx://')) customRedirect = decoded; } catch {} }
   if (!code || !clientId || !clientSecret) return res.status(400).json({ error: 'Missing params' });
@@ -147,12 +146,12 @@ router.get('/google/callback', async (req, res) => {
     const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', { headers: { Authorization: 'Bearer ' + tokenData.access_token } });
     const googleUser = await userRes.json();
     if (!googleUser.email) return res.redirect(customRedirect || frontendUrl + '?error=no_email');
-    let user = dbGet('SELECT * FROM users WHERE email = ?', [googleUser.email]);
+    let user = await dbGet('SELECT * FROM users WHERE email = ?', [googleUser.email]);
     if (user) {
-      if (!user.google_id) dbRun('UPDATE users SET google_id = ? WHERE id = ?', [googleUser.id, user.id]);
+      if (!user.google_id) await dbRun('UPDATE users SET google_id = ? WHERE id = ?', [googleUser.id, user.id]);
     } else {
       const hashedPass = bcrypt.hashSync(Math.random().toString(36), 10);
-      const result = dbRun("INSERT INTO users (name, email, password, google_id) VALUES (?, ?, ?, ?)", [googleUser.name || googleUser.email, googleUser.email, hashedPass, googleUser.id]);
+      const result = await dbRun("INSERT INTO users (name, email, password, google_id) VALUES (?, ?, ?, ?)", [googleUser.name || googleUser.email, googleUser.email, hashedPass, googleUser.id]);
       user = { id: result.lastInsertRowid, email: googleUser.email, name: googleUser.name || googleUser.email, role: 'customer' };
     }
     const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRES });

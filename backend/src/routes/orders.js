@@ -15,29 +15,29 @@ router.post('/', async (req, res) => {
   try { 
     const decoded = jwt.verify(token, JWT_SECRET);
     userId = decoded.id;
-    const user = dbGet('SELECT email_verified FROM users WHERE id = ?', [userId]);
+    const user = await dbGet('SELECT email_verified FROM users WHERE id = ?', [userId]);
     if (user && !user.email_verified) return res.status(403).json({ error: 'Please verify your email before ordering' });
   } catch { return res.status(401).json({ error: 'Login required to place order' }); }
   let finalNotes = notes || '';
   if (coupon_code) {
-    const coupon = dbGet('SELECT * FROM coupons WHERE code = ? AND is_active = 1', [coupon_code.toUpperCase()]);
+    const coupon = await dbGet('SELECT * FROM coupons WHERE code = ? AND is_active = 1', [coupon_code.toUpperCase()]);
     if (coupon) {
-      dbRun('UPDATE coupons SET used_count = used_count + 1 WHERE id = ?', [coupon.id]);
+      await dbRun('UPDATE coupons SET used_count = used_count + 1 WHERE id = ?', [coupon.id]);
       finalNotes = (finalNotes ? finalNotes + ' | ' : '') + 'Coupon: ' + coupon_code + ' (' + coupon.discount_percent + '% off)';
     }
   }
-  const result = dbRun('INSERT INTO orders (user_id, items, total, payment_method, shipping_address, phone, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  const result = await dbRun('INSERT INTO orders (user_id, items, total, payment_method, shipping_address, phone, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
     [userId, JSON.stringify(items), total, payment_method, shipping_address || null, phone || null, finalNotes || null]);
   res.json({ id: result.lastInsertRowid, message: 'Order placed successfully' });
   } catch(e) { console.error('Order error:', e); res.status(500).json({ error: e.message || 'Server error' }); }
 });
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'No token' });
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const orders = dbAll('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC', [decoded.id]);
+    const orders = await dbAll('SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC', [decoded.id]);
     res.json(orders.map(o => ({ ...o, items: JSON.parse(o.items) })));
   } catch { res.status(401).json({ error: 'Invalid token' }); }
 });

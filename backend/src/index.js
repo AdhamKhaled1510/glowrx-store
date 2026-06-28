@@ -2,8 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const path = require('path');
-const { initDb, dbRun, dbGet } = require('./db.js');
+require('express-async-errors');
+const { initDb, dbRun, dbGet, dbAll } = require('./db.js');
 const productsRouter = require('./routes/products.js');
 const authRouter = require('./routes/auth.js');
 const ordersRouter = require('./routes/orders.js');
@@ -89,37 +89,27 @@ const productsData = [
   ['ميست ماريو باديسكو','Mario Badescu Facial Spray','رذاذ ترطيب للوجه بالورد','Hydrating facial spray with rosewater',45,40,7,0,'["https://images.unsplash.com/photo-1556229162-5c63ed7c4efb?w=400","https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=400"]'],
 ];
 
-let ready = false;
-let initPromise = null;
-app.use((req, res, next) => {
-  if (ready) return next();
-  if (!initPromise) {
-    initPromise = initDb().then(() => {
-      const catCount = dbGet("SELECT COUNT(*) as c FROM categories");
-      if (!catCount || catCount.c === 0) {
-        for (const c of categoriesData) dbRun('INSERT INTO categories (name_ar, name_en) VALUES (?, ?)', c);
-      } else {
-        const count = dbGet("SELECT COUNT(*) as c FROM categories");
-        if (count.c < categoriesData.length) {
-          const existing = categoriesData.slice(count.c);
-          for (const c of existing) dbRun('INSERT INTO categories (name_ar, name_en) VALUES (?, ?)', c);
-        }
-      }
-      const prodCount = dbGet("SELECT COUNT(*) as c FROM products");
-      if (!prodCount || prodCount.c === 0) {
-        for (const p of productsData) dbRun('INSERT INTO products (name_ar, name_en, description_ar, description_en, price, stock, category_id, featured, images) VALUES (?,?,?,?,?,?,?,?,?)', p);
-      }
-      const adminExists = dbGet("SELECT id FROM users WHERE role = 'admin'");
-      if (!adminExists) {
-        const adminEmail = process.env.ADMIN_EMAIL || 'admin@glowrx.com';
-        const adminPass = process.env.ADMIN_PASSWORD || 'admin123';
-        const hashed = require('bcryptjs').hashSync(adminPass, 10);
-        dbRun("INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, 'admin')", ['Admin', adminEmail, hashed]);
-      }
-      ready = true;
-    }).catch(e => console.error('Init error:', e));
+app.use(async (req, res, next) => {
+  if (!ready) {
+    await initDb();
+    const catCount = await dbGet("SELECT COUNT(*) as c FROM categories");
+    if (!catCount || catCount.c === 0) {
+      for (const c of categoriesData) await dbRun('INSERT INTO categories (name_ar, name_en) VALUES (?, ?)', c);
+    }
+    const prodCount = await dbGet("SELECT COUNT(*) as c FROM products");
+    if (!prodCount || prodCount.c === 0) {
+      for (const p of productsData) await dbRun('INSERT INTO products (name_ar, name_en, description_ar, description_en, price, stock, category_id, featured, images) VALUES (?,?,?,?,?,?,?,?,?)', p);
+    }
+    const adminExists = await dbGet("SELECT id FROM users WHERE role = 'admin'");
+    if (!adminExists) {
+      const adminEmail = process.env.ADMIN_EMAIL || 'admin@glowrx.com';
+      const adminPass = process.env.ADMIN_PASSWORD || 'admin123';
+      const hashed = require('bcryptjs').hashSync(adminPass, 10);
+      await dbRun("INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, 'admin')", ['Admin', adminEmail, hashed]);
+    }
+    ready = true;
   }
-  initPromise.then(() => next()).catch(() => next());
+  next();
 });
 
 // Apply auth rate limiter to auth routes
