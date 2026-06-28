@@ -55,6 +55,8 @@ const authLimiter = rateLimit({
 // Body parser with size limit
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+// Larger limit for admin (product images)
+app.use('/api/admin', express.json({ limit: '5mb' }));
 
 const categoriesData = [
   ['أحمر شفاه', 'Lipstick'],
