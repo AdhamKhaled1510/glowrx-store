@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLanguage } from '../context/LanguageContext';
 import { useCart } from '../context/CartContext';
 import { createOrder, validateCoupon } from '../api';
+const API_URL = 'https://cosmetics-store-api.vercel.app/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { t } from '../i18n';
 
@@ -56,12 +57,24 @@ export default function CheckoutScreen({ navigation }) {
 
   const handleOrder = async () => {
     const userStr = await AsyncStorage.getItem('user');
-    const user = userStr ? JSON.parse(userStr) : null;
+    let user = userStr ? JSON.parse(userStr) : null;
     if (!user) {
       Alert.alert('', lang === 'ar' ? 'يجب تسجيل الدخول أولاً' : 'Please login first');
       navigation.navigate('Auth');
       return;
     }
+    // Get latest email_verified from server
+    try {
+      const token = await AsyncStorage.getItem('token');
+      const profRes = await fetch(API_URL + '/auth/profile', {
+        headers: { Authorization: 'Bearer ' + token }
+      });
+      if (profRes.ok) {
+        const prof = await profRes.json();
+        user.email_verified = prof.email_verified;
+        await AsyncStorage.setItem('user', JSON.stringify(user));
+      }
+    } catch {}
     if (!user.email_verified) {
       Alert.alert('', lang === 'ar' ? 'يرجى التحقق من بريدك الإلكتروني أولاً' : 'Please verify your email first');
       navigation.navigate('Verify', { token: await AsyncStorage.getItem('token') });
@@ -89,7 +102,20 @@ export default function CheckoutScreen({ navigation }) {
         { text: 'OK', onPress: () => { clearCart(); setAppliedCoupon(null); setCouponCode(''); navigation.navigate('Orders'); } },
       ]);
     } catch (err) {
-      Alert.alert('Error', err.message);
+      const msg = err.response?.data?.error || err.message;
+      if (err.response?.status === 403) {
+        // Server says email not verified - update local and redirect
+        const userStr = await AsyncStorage.getItem('user');
+        if (userStr) {
+          const u = JSON.parse(userStr);
+          u.email_verified = 0;
+          await AsyncStorage.setItem('user', JSON.stringify(u));
+        }
+        Alert.alert('', lang === 'ar' ? 'يرجى التحقق من بريدك الإلكتروني أولاً' : 'Please verify your email first');
+        navigation.navigate('Verify', { token: await AsyncStorage.getItem('token') });
+      } else {
+        Alert.alert('Error', msg);
+      }
     } finally { setOrdering(false); }
   };
 
