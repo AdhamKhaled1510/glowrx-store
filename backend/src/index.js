@@ -98,6 +98,13 @@ app.use(async (req, res, next) => {
       const catCount = await dbGet("SELECT COUNT(*) as c FROM categories");
       if (!catCount || catCount.c === 0) {
         for (const c of categoriesData) await dbRun('INSERT INTO categories (name_ar, name_en) VALUES (?, ?)', c);
+      } else {
+        const cat1 = await dbGet("SELECT id FROM categories WHERE id = 1");
+        if (!cat1) {
+          await dbRun('DELETE FROM products');
+          await dbRun('DELETE FROM categories');
+          for (const c of categoriesData) await dbRun('INSERT INTO categories (name_ar, name_en) VALUES (?, ?)', c);
+        }
       }
       const prodCount = await dbGet("SELECT COUNT(*) as c FROM products");
       if (!prodCount || prodCount.c === 0) {
