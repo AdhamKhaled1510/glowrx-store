@@ -369,22 +369,22 @@ select.status-select{
       <div class="stats-grid" id="statsGrid"></div>
       <div style="display:grid;grid-template-columns:2fr 1fr;gap:20px;margin-bottom:20px">
         <div class="card">
-          <div class="card-header"><h3>📋 آخر الطلبات</h3><button class="btn btn-sm btn-outline" onclick="showSection('orders')">${t('عرض الكل','View All')} →</button></div>
+          <div class="card-header"><h3 id="dashRecentTitle">📋 آخر الطلبات</h3><button class="btn btn-sm btn-outline" onclick="showSection('orders')" id="dashViewAllBtn">عرض الكل →</button></div>
           <div id="recentOrders"></div>
         </div>
         <div class="card">
-          <div class="card-header"><h3>⚡ ${t('إجراءات سريعة','Quick Actions')}</h3></div>
+          <div class="card-header"><h3 id="dashQuickTitle">⚡ إجراءات سريعة</h3></div>
           <div style="display:flex;flex-direction:column;gap:8px">
-            <button class="btn btn-primary btn-sm" onclick="showSection('products');openProductModal()" style="justify-content:center;padding:12px">+ ${t('إضافة منتج','Add Product')}</button>
-            <button class="btn btn-sm" style="justify-content:center;padding:12px;background:var(--bg);color:var(--text);border:none;border-radius:var(--radius-sm);cursor:pointer;font-family:inherit;font-size:13px;font-weight:600" onclick="showSection('coupons');openCouponModal()">🎟️ ${t('إضافة كوبون','Add Coupon')}</button>
-            <button class="btn btn-sm" style="justify-content:center;padding:12px;background:var(--bg);color:var(--text);border:none;border-radius:var(--radius-sm);cursor:pointer;font-family:inherit;font-size:13px;font-weight:600" onclick="showSection('orders')">📦 ${t('عرض الطلبات','View Orders')}</button>
-            <button class="btn btn-sm" style="justify-content:center;padding:12px;background:var(--bg);color:var(--text);border:none;border-radius:var(--radius-sm);cursor:pointer;font-family:inherit;font-size:13px;font-weight:600" onclick="exportOrders()">📥 ${t('تصدير CSV','Export CSV')}</button>
+            <button class="btn btn-primary btn-sm" onclick="showSection('products');openProductModal()" style="justify-content:center;padding:12px" id="dashAddProductBtn">+ إضافة منتج</button>
+            <button class="btn btn-sm" style="justify-content:center;padding:12px;background:var(--bg);color:var(--text);border:none;border-radius:var(--radius-sm);cursor:pointer;font-family:inherit;font-size:13px;font-weight:600" onclick="showSection('coupons');openCouponModal()" id="dashAddCouponBtn">🎟️ إضافة كوبون</button>
+            <button class="btn btn-sm" style="justify-content:center;padding:12px;background:var(--bg);color:var(--text);border:none;border-radius:var(--radius-sm);cursor:pointer;font-family:inherit;font-size:13px;font-weight:600" onclick="showSection('orders')" id="dashViewOrdersBtn">📦 عرض الطلبات</button>
+            <button class="btn btn-sm" style="justify-content:center;padding:12px;background:var(--bg);color:var(--text);border:none;border-radius:var(--radius-sm);cursor:pointer;font-family:inherit;font-size:13px;font-weight:600" onclick="exportOrders()" id="dashExportBtn">📥 تصدير CSV</button>
           </div>
           <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
-            <div style="font-size:13px;color:var(--text2);margin-bottom:8px">${t('حالة الخادم','Server Status')}</div>
+            <div style="font-size:13px;color:var(--text2);margin-bottom:8px" id="dashServerStatus">حالة الخادم</div>
             <div style="display:flex;align-items:center;gap:8px;font-size:13px">
               <span class="dot" id="dashApiDot" style="display:inline-block"></span>
-              <span id="dashApiText">${t('متصل','Connected')}</span>
+              <span id="dashApiText">متصل</span>
             </div>
           </div>
         </div>
@@ -645,7 +645,25 @@ function toggleLang() {
   // Update page title
   const titles = { dashboard: '📊 ' + t('الإحصائيات','Dashboard'), orders: '📦 ' + t('الطلبات','Orders'), products: '🛍️ ' + t('المنتجات','Products'), users: '👥 ' + t('العملاء','Customers'), coupons: '🎟️ ' + t('الكوبونات','Coupons'), reports: '📈 ' + t('التقارير','Reports'), categories: '📂 ' + t('الأقسام','Categories') };
   document.getElementById('pageTitle').textContent = titles[currentSection] || currentSection;
+  updateStaticTexts();
   renderCurrentSection();
+}
+
+function updateStaticTexts() {
+  const map = {
+    dashRecentTitle: t('📋 آخر الطلبات','📋 Recent Orders'),
+    dashViewAllBtn: t('عرض الكل →','View All →'),
+    dashQuickTitle: t('⚡ إجراءات سريعة','⚡ Quick Actions'),
+    dashAddProductBtn: t('+ إضافة منتج','+ Add Product'),
+    dashAddCouponBtn: t('🎟️ إضافة كوبون','🎟️ Add Coupon'),
+    dashViewOrdersBtn: t('📦 عرض الطلبات','📦 View Orders'),
+    dashExportBtn: t('📥 تصدير CSV','📥 Export CSV'),
+    dashServerStatus: t('حالة الخادم','Server Status'),
+  };
+  Object.keys(map).forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = map[id];
+  });
 }
 
 // ─── LOGIN ───
@@ -675,7 +693,7 @@ function enterApp() {
   document.getElementById('sidebar').style.display = '';
   document.getElementById('mainApp').style.display = '';
   document.getElementById('themeBtn').textContent = dark ? '☀️' : '🌙';
-  showSection('dashboard'); checkAPI();
+  showSection('dashboard'); checkAPI(); updateStaticTexts();
   // Save creds for polling
   if (window.electronAPI) {
     window.electronAPI.saveAdminCreds({ token, adminKey });
