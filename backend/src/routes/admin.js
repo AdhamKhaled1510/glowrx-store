@@ -25,7 +25,7 @@ function adminAuth(req, res, next) {
 // --- Orders ---
 router.get('/orders', adminAuth, async (req, res) => {
   const { status, page = 1, limit = 20 } = req.query;
-  let sql = 'SELECT o.*, u.name as user_name, u.email as user_email, u.phone as user_phone FROM orders o LEFT JOIN users u ON o.user_id = u.id';
+  let sql = "SELECT o.*, u.name as user_name, u.email as user_email, u.phone as user_phone FROM orders o LEFT JOIN users u ON o.user_id = u.id";
   const params = [];
   if (status) { sql += ' WHERE o.status = ?'; params.push(status); }
   sql += ' ORDER BY o.created_at DESC LIMIT ? OFFSET ?';
@@ -76,34 +76,70 @@ router.put('/orders/:id/status', adminAuth, async (req, res) => {
 // --- Products ---
 router.get('/products', adminAuth, async (req, res) => {
   const products = await dbAll('SELECT p.*, c.name_ar as category_ar, c.name_en as category_en FROM products p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.created_at DESC');
-  res.json({ products });
+  res.json({ products: products.map(p => ({ ...p, variants: JSON.parse(p.variants || '[]'), images: JSON.parse(p.images || '[]') })) });
 });
 
 router.post('/products', adminAuth, async (req, res) => {
-  const { name_ar, name_en, description_ar, description_en, price, stock, category_id, featured, images } = req.body;
+  const { name_ar, name_en, description_ar, description_en, price, stock, category_id, featured, images, sku, variants } = req.body;
   if (!name_ar || !name_en || !price) return res.status(400).json({ error: 'Name (AR/EN) and price are required' });
-  const result = await dbRun('INSERT INTO products (name_ar, name_en, description_ar, description_en, price, stock, category_id, featured, images) VALUES (?,?,?,?,?,?,?,?,?)',
-    [name_ar, name_en, description_ar || '', description_en || '', price, stock || 0, category_id || 1, featured ? 1 : 0, JSON.stringify(images || [])]);
+  const result = await dbRun('INSERT INTO products (name_ar, name_en, description_ar, description_en, price, stock, category_id, featured, images, sku, variants) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+    [name_ar, name_en, description_ar || '', description_en || '', price, stock || 0, category_id || null, featured ? 1 : 0, JSON.stringify(images || []), sku || null, JSON.stringify(variants || [])]);
   res.json({ id: result.lastInsertRowid, message: 'Product created' });
 });
 
 router.put('/products/:id', adminAuth, async (req, res) => {
   const existing = await dbGet('SELECT * FROM products WHERE id = ?', [req.params.id]);
   if (!existing) return res.status(404).json({ error: 'Product not found' });
-  const { name_ar, name_en, description_ar, description_en, price, stock, category_id, featured, images } = req.body;
-  await dbRun('UPDATE products SET name_ar=?, name_en=?, description_ar=?, description_en=?, price=?, stock=?, category_id=?, featured=?, images=? WHERE id=?',
-    [name_ar || existing.name_ar, name_en || existing.name_en,
+  const { name_ar, name_en, description_ar, description_en, price, stock, category_id, featured, images, sku, variants } = req.body;
+  await dbRun('UPDATE products SET name_ar=?, name_en=?, description_ar=?, description_en=?, price=?, stock=?, category_id=?, featured=?, images=?, sku=?, variants=? WHERE id=?',
+    [name_ar ?? existing.name_ar, name_en ?? existing.name_en,
      description_ar !== undefined ? description_ar : existing.description_ar,
      description_en !== undefined ? description_en : existing.description_en,
-     price || existing.price, stock !== undefined ? stock : existing.stock,
-     category_id || existing.category_id, featured !== undefined ? (featured ? 1 : 0) : existing.featured,
-     images ? JSON.stringify(images) : existing.images, req.params.id]);
+     price ?? existing.price, stock !== undefined ? stock : existing.stock,
+     category_id !== undefined ? category_id : existing.category_id,
+     featured !== undefined ? (featured ? 1 : 0) : existing.featured,
+     images ? JSON.stringify(images) : existing.images,
+     sku !== undefined ? sku : existing.sku,
+     variants ? JSON.stringify(variants) : existing.variants,
+     req.params.id]);
   res.json({ message: 'Product updated' });
 });
 
 router.delete('/products/:id', adminAuth, async (req, res) => {
   await dbRun('DELETE FROM products WHERE id = ?', [req.params.id]);
   res.json({ message: 'Product deleted' });
+});
+
+// --- Bulk CSV Import ---
+router.post('/products/import', adminAuth, async (req, res) => {
+  const { rows } = req.body;
+  if (!rows || !rows.length) return res.status(400).json({ error: 'No data provided' });
+  const required = ['name_ar', 'name_en', 'price'];
+  const errors = [];
+  let imported = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const missing = required.filter(f => !r[f]);
+    if (missing.length) { errors.push({ row: i + 1, error: `Missing fields: ${missing.join(', ')}` }); continue; }
+    try {
+      let catId = r.category_id;
+      if (r.category_name_en) {
+        const cat = await dbGet('SELECT id FROM categories WHERE name_en = ?', [r.category_name_en]);
+        catId = cat ? cat.id : null;
+      }
+      await dbRun('INSERT INTO products (name_ar, name_en, description_ar, description_en, price, stock, category_id, featured, images, sku, variants) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+        [r.name_ar, r.name_en, r.description_ar || '', r.description_en || '', r.price, r.stock || 0, catId || null, r.featured ? 1 : 0, JSON.stringify(r.images ? (Array.isArray(r.images) ? r.images : [r.images]) : []), r.sku || null, JSON.stringify(r.variants || [])]);
+      imported++;
+    } catch (e) { errors.push({ row: i + 1, error: e.message }); }
+  }
+  res.json({ imported, errors });
+});
+
+// --- Internal order notes ---
+router.put('/orders/:id/notes', adminAuth, async (req, res) => {
+  const { internal_notes } = req.body;
+  await dbRun('UPDATE orders SET internal_notes = ? WHERE id = ?', [internal_notes || '', req.params.id]);
+  res.json({ message: 'Notes updated' });
 });
 
 // --- Users ---
@@ -127,7 +163,19 @@ router.get('/stats', adminAuth, async (req, res) => {
   const totalProducts = await dbGet('SELECT COUNT(*) as count FROM products');
   const pendingOrders = await dbGet("SELECT COUNT(*) as count FROM orders WHERE status = 'pending'");
   const ordersByStatus = await dbAll('SELECT status, COUNT(*) as count FROM orders GROUP BY status');
+  const cancelledCount = await dbGet("SELECT COUNT(*) as count FROM orders WHERE status = 'cancelled'");
+  const cancellationRate = totalOrders.count > 0 ? ((cancelledCount.count / totalOrders.count) * 100).toFixed(1) : 0;
   const recentOrders = await dbAll('SELECT o.id, o.total, o.status, o.created_at, u.name as user_name FROM orders o LEFT JOIN users u ON o.user_id = u.id ORDER BY o.created_at DESC LIMIT 5');
+  // Top 10 products
+  const topProducts = await dbAll("SELECT p.id, p.name_ar, p.name_en, p.price, p.images, SUM(CAST(JSON_EXTRACT(o_items.value, '$.quantity') AS INTEGER)) as qty FROM products p JOIN orders o ON o.status != 'cancelled', JSON_EACH(o.items) o_items WHERE JSON_EXTRACT(o_items.value, '$.product_id') = p.id GROUP BY p.id ORDER BY qty DESC LIMIT 10");
+  // Sales comparison (current period vs previous)
+  const now = new Date();
+  const currentStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+  const prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
+  const prevEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
+  const currentSales = await dbGet("SELECT COALESCE(SUM(total),0) as total FROM orders WHERE status != 'cancelled' AND created_at >= ?", [currentStart]);
+  const prevSales = await dbGet("SELECT COALESCE(SUM(total),0) as total FROM orders WHERE status != 'cancelled' AND created_at >= ? AND created_at <= ?", [prevStart, prevEnd]);
+  const salesChange = prevSales.total > 0 ? (((currentSales.total - prevSales.total) / prevSales.total) * 100).toFixed(1) : 0;
   res.json({
     stats: {
       totalOrders: totalOrders.count,
@@ -135,9 +183,14 @@ router.get('/stats', adminAuth, async (req, res) => {
       totalUsers: totalUsers.count,
       totalProducts: totalProducts.count,
       pendingOrders: pendingOrders.count,
-      ordersByStatus
+      ordersByStatus,
+      cancellationRate: parseFloat(cancellationRate),
+      salesChange: parseFloat(salesChange),
+      currentMonthSales: currentSales.total,
+      prevMonthSales: prevSales.total,
     },
-    recentOrders: recentOrders.map(o => ({ ...o, items: [] }))
+    recentOrders: recentOrders.map(o => ({ ...o, items: [] })),
+    topProducts: (topProducts || []).map(p => ({ ...p, images: JSON.parse(p.images || '[]'), qty: parseInt(p.qty) || 0 })),
   });
 });
 

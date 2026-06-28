@@ -367,10 +367,14 @@ select.status-select{
     <!-- Dashboard -->
     <div id="section-dashboard">
       <div class="stats-grid" id="statsGrid"></div>
-      <div style="display:grid;grid-template-columns:2fr 1fr;gap:20px;margin-bottom:20px">
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:20px;margin-bottom:20px">
         <div class="card">
           <div class="card-header"><h3 id="dashRecentTitle">📋 آخر الطلبات</h3><button class="btn btn-sm btn-outline" onclick="showSection('orders')" id="dashViewAllBtn">عرض الكل →</button></div>
           <div id="recentOrders"></div>
+        </div>
+        <div class="card" id="topProducts">
+          <div style="font-weight:600;font-size:13px;margin-bottom:8px">🏆 ${t('الأكثر مبيعاً','Top Selling')}</div>
+          <div style="font-size:12px;color:var(--text2)">${t('لا توجد بيانات','No data yet')}</div>
         </div>
         <div class="card">
           <div class="card-header"><h3 id="dashQuickTitle">⚡ إجراءات سريعة</h3></div>
@@ -418,7 +422,10 @@ select.status-select{
       <div class="card">
         <div class="card-header">
           <h3>🛍️ المنتجات</h3>
-          <button class="btn btn-primary btn-sm" onclick="openProductModal()">+ إضافة</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" onclick="openProductModal()">+ إضافة</button>
+            <button class="btn btn-sm btn-outline" onclick="showImportModal()">📥 استيراد CSV</button>
+          </div>
         </div>
         <div class="search-bar">
           <input type="text" id="productSearch" placeholder="🔍 بحث..." oninput="loadProducts()">
@@ -505,8 +512,12 @@ select.status-select{
       <div class="form-group"><label>المخزون</label><input type="number" id="pStock"></div>
     </div>
     <div class="form-row">
+      <div class="form-group"><label>SKU/Barcode</label><input id="pSku" placeholder="GRX-LIP-001" style="font-family:monospace"></div>
       <div class="form-group"><label>القسم</label><select id="pCategory"></select></div>
+    </div>
+    <div class="form-row">
       <div class="form-group"><label>مميز</label><select id="pFeatured"><option value="0">لا</option><option value="1">نعم</option></select></div>
+      <div class="form-group"><label></label></div>
     </div>
     <div class="form-group"><label>الصور (رابط لكل سطر)</label><textarea id="pImages" placeholder="https://images.unsplash.com/photo-..."></textarea></div>
     <div class="form-group"><label>أو ارفع صورة</label>
@@ -516,6 +527,9 @@ select.status-select{
         <input type="file" id="pImageUpload" accept="image/*" onchange="uploadImage(event)" style="display:none">
       </div>
       <canvas id="pImagePreview" style="max-width:150px;max-height:150px;margin-top:8px;border-radius:8px;display:none"></canvas>
+    </div>
+    <div class="form-group"><label>المتغيرات (Variants) — JSON <span style="font-size:11px;color:var(--text2)">[{"type":"size","value":"30ml","stock":5,"price":80}]</span></label>
+      <textarea id="pVariants" rows="3" style="font-family:monospace;font-size:12px" placeholder='[{"type":"size","value":"30ml","value_ar":"30مل","stock":10,"price":80},{"type":"color","value":"Red","value_ar":"أحمر","stock":5,"price":null}]'></textarea>
     </div>
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="saveProduct()">💾 حفظ</button>
@@ -561,6 +575,29 @@ select.status-select{
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="saveCoupon()">💾 حفظ</button>
       <button class="btn btn-outline" onclick="closeCouponModal()">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- CSV Import Modal -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal" style="max-width:600px">
+    <h3>📥 ${t('استيراد منتجات','Import Products')}</h3>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:12px">${t('الصق بيانات CSV بالأعمدة التالية','Paste CSV data with columns')}: <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:12px">name_ar, name_en, price, stock, sku, description_ar, description_en, category_name_en, featured</code></p>
+    <div class="form-group"><label>${t('بيانات CSV','CSV Data')}</label>
+      <textarea id="csvInput" rows="8" style="font-family:monospace;font-size:12px" placeholder="name_ar,name_en,price,stock,sku
+أحمر شفاه,Red Lipstick,120,50,GRX-LIP-001
+ماسكارا,Mascara,80,30,GRX-MAS-001"></textarea>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="csvHasHeader" checked> ${t('السطر الأول هو عنوان الأعمدة','First row is header')}
+      </label>
+    </div>
+    <div id="importResult" style="display:none;margin-bottom:12px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="importCSV()">📥 ${t('استيراد','Import')}</button>
+      <button class="btn btn-outline" onclick="closeModal('importModal')">${t('إلغاء','Cancel')}</button>
     </div>
   </div>
 </div>
@@ -759,26 +796,45 @@ async function loadDashboard() {
     const trends = s.ordersByStatus?.reduce((a,b) => { a[b.status] = b.count; return a; }, {}) || {};
     const items = (lang === 'ar' ? [
       { icon: '📦', num: s.totalOrders, label: 'إجمالي الطلبات', trend: '+' + (trends.pending||0) + ' معلق' },
-      { icon: '💰', num: Math.round(s.totalRevenue).toLocaleString() + ' ' + t('جنيه','EGP'), label: 'إجمالي الإيرادات', trend: '' },
+      { icon: '💰', num: Math.round(s.totalRevenue).toLocaleString() + ' ' + t('جنيه','EGP'), label: 'إجمالي الإيرادات', trend: s.salesChange ? (s.salesChange > 0 ? '↑ ' : '↓ ') + Math.abs(s.salesChange) + '%' + t(' عن الشهر الماضي',' vs last month') : '' },
       { icon: '👥', num: s.totalUsers, label: 'إجمالي العملاء', trend: '' },
       { icon: '🛍️', num: s.totalProducts, label: 'إجمالي المنتجات', trend: '' },
       { icon: '⏳', num: s.pendingOrders, label: t('طلبات معلقة','Pending'), trend: trends.pending > 0 ? t('في انتظار المراجعة','Awaiting review') : '' },
+      { icon: '📊', num: s.cancellationRate + '%', label: t('معدل الإلغاء','Cancellation'), trend: s.cancellationRate > 10 ? '⚠️ ' + t('مرتفع','High') : '✅ ' + t('منخفض','Low') },
     ] : [
       { icon: '📦', num: s.totalOrders, label: 'Total Orders', trend: '+' + (trends.pending||0) + ' pending' },
-      { icon: '💰', num: Math.round(s.totalRevenue).toLocaleString() + ' EGP', label: 'Total Revenue', trend: '' },
+      { icon: '💰', num: Math.round(s.totalRevenue).toLocaleString() + ' EGP', label: 'Total Revenue', trend: s.salesChange ? (s.salesChange > 0 ? '↑ ' : '↓ ') + Math.abs(s.salesChange) + '% vs last month' : '' },
       { icon: '👥', num: s.totalUsers, label: 'Total Customers', trend: '' },
       { icon: '🛍️', num: s.totalProducts, label: 'Total Products', trend: '' },
       { icon: '⏳', num: s.pendingOrders, label: 'Pending Orders', trend: trends.pending > 0 ? 'Awaiting review' : '' },
+      { icon: '📊', num: s.cancellationRate + '%', label: 'Cancellation Rate', trend: s.cancellationRate > 10 ? '⚠️ High' : '✅ Low' },
     ]);
     document.getElementById('statsGrid').innerHTML = items.map(i =>
       `<div class="stat-card"><div class="stat-icon">🟣</div><div class="stat-num">${i.num}</div><div class="stat-label">${i.label}</div>${i.trend ? `<div class="stat-trend up">${i.trend}</div>` : ''}<div class="stat-bar"></div></div>`
     ).join('');
     const ro = data.recentOrders;
-    if (!ro.length) { document.getElementById('recentOrders').innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><p>' + t('لا توجد طلبات بعد','No orders yet') + '</p></div>'; return; }
-    document.getElementById('recentOrders').innerHTML = `<div class="table-wrap"><table>
-      <tr><th>#</th><th>${t('العميل','Customer')}</th><th>${t('المجموع','Total')}</th><th>${t('الحالة','Status')}</th><th>${t('التاريخ','Date')}</th></tr>
-      ${ro.map(o => `<tr class="clickable" onclick="showOrderDetail(${o.id})"><td>#${o.id}</td><td>${esc(o.user_name) || '—'}</td><td>${Math.round(o.total)} EGP</td><td><span class="badge ${o.status}">${t(o.status,o.status)}</span></td><td>${new Date(o.created_at).toLocaleDateString()}</td></tr>`).join('')}
-    </table></div>`;
+    if (!ro.length) { document.getElementById('recentOrders').innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><p>' + t('لا توجد طلبات بعد','No orders yet') + '</p></div>'; }
+    else {
+      document.getElementById('recentOrders').innerHTML = `<div class="table-wrap"><table>
+        <tr><th>#</th><th>${t('العميل','Customer')}</th><th>${t('المجموع','Total')}</th><th>${t('الحالة','Status')}</th><th>${t('التاريخ','Date')}</th></tr>
+        ${ro.map(o => `<tr class="clickable" onclick="showOrderDetail(${o.id})"><td>#${o.id}</td><td>${esc(o.user_name) || '—'}</td><td>${Math.round(o.total)} EGP</td><td><span class="badge ${o.status}">${t(o.status,o.status)}</span></td><td>${new Date(o.created_at).toLocaleDateString()}</td></tr>`).join('')}
+      </table></div>`;
+    }
+    // Top products
+    if (data.topProducts?.length) {
+      const tp = document.getElementById('topProducts');
+      if (tp) {
+        tp.innerHTML = `<div style="font-weight:600;font-size:13px;margin-bottom:8px">🏆 ${t('الأكثر مبيعاً','Top Selling')}</div>` +
+          data.topProducts.slice(0, 5).map((p, i) => {
+            const img = p.images?.[0] || '';
+            return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+              ${img ? `<img src="${esc(img)}" style="width:32px;height:32px;border-radius:6px;object-fit:cover">` : `<div style="width:32px;height:32px;border-radius:6px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:14px">#${i+1}</div>`}
+              <div style="flex:1;font-size:13px">${esc(lang === 'ar' ? p.name_ar : p.name_en)}</div>
+              <div style="font-size:12px;font-weight:600;color:var(--primary)">×${p.qty}</div>
+            </div>`;
+          }).join('');
+      }
+    }
     // Update pending badge in sidebar
     const badge = document.querySelector('.sidebar-nav a[onclick*="orders"] .badge-count');
     if (badge) {
@@ -843,6 +899,10 @@ async function showOrderDetail(id) {
         <div class="field" style="grid-column:1/-1"><div class="label">${t('العنوان','Address')}</div><div class="value">${o.shipping_address || '—'}</div></div>
         <div class="field" style="grid-column:1/-1"><div class="label">${t('ملاحظات','Notes')}</div><div class="value">${o.notes || '—'}</div></div>
         <div class="field" style="grid-column:1/-1"><div class="label">${t('المنتجات','Items')}</div><div class="value">${items}</div></div>
+        <div class="field" style="grid-column:1/-1"><div class="label">${t('ملاحظات داخلية','Internal Notes')}</div>
+          <textarea id="internalNotes" style="width:100%;min-height:60px;font-size:13px" placeholder="${t('ملاحظات للأدمن فقط','Admin-only notes...')}">${o.internal_notes || ''}</textarea>
+          <button class="btn btn-sm btn-outline" onclick="saveInternalNotes(${o.id})" style="margin-top:4px">💾 ${t('حفظ الملاحظات','Save Notes')}</button>
+        </div>
       </div>
       <label style="font-weight:600;font-size:13px;color:var(--text2)">${t('تحديث الحالة','Status')}:</label>
       <select class="status-select" onchange="updateOrderStatus(${o.id}, this.value)" style="margin-right:8px">
@@ -852,6 +912,12 @@ async function showOrderDetail(id) {
     document.getElementById('printInvoiceBtn').onclick = () => printInvoice(id);
     document.getElementById('orderModal').classList.add('show');
   } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function saveInternalNotes(id) {
+  const notes = document.getElementById('internalNotes').value;
+  try { await api('/admin/orders/' + id + '/notes', { method: 'PUT', body: JSON.stringify({ internal_notes: notes }) }); showToast(t('تم الحفظ','Saved')); }
+  catch(e) { showToast(e.message, 'error'); }
 }
 
 async function updateOrderStatus(id, status) {
@@ -869,13 +935,15 @@ async function loadProducts() {
     if (lowStockFilter) products = products.filter(p => p.stock <= 5);
     if (!products.length) { document.getElementById('productsTable').innerHTML = '<div class="empty-state"><div class="empty-icon">🛍️</div><p>' + t('لا توجد منتجات','No products') + '</p></div>'; return; }
     document.getElementById('productsTable').innerHTML = `<div class="table-wrap"><table>
-      <tr><th>#</th><th>${t('الصورة','Image')}</th><th>${t('الاسم','Name')}</th><th>${t('السعر','Price')}</th><th>${t('المخزون','Stock')}</th><th>${t('القسم','Category')}</th><th>${t('مميز','Featured')}</th><th></th></tr>
+      <tr><th>#</th><th>${t('الصورة','Image')}</th><th>${t('الاسم','Name')}</th><th>${t('SKU','SKU')}</th><th>${t('السعر','Price')}</th><th>${t('المخزون','Stock')}</th><th>${t('القسم','Category')}</th><th>${t('مميز','Featured')}</th><th></th></tr>
       ${products.map(p => {
         const imgs = (() => { try { return JSON.parse(p.images||'[]'); } catch { return []; } })();
+        const skuDisplay = p.sku || '—';
         return `<tr>
         <td>${p.id}</td>
         <td>${imgs[0] ? `<img src="${esc(imgs[0])}" style="width:36px;height:36px;border-radius:8px;object-fit:cover" onerror="this.style.display='none'">` : '—'}</td>
         <td>${esc(lang === 'ar' ? p.name_ar : p.name_en)}</td>
+        <td style="font-family:monospace;font-size:12px;color:var(--text2)">${esc(skuDisplay)}</td>
         <td style="font-weight:600;color:var(--primary)">${Math.round(p.price)} EGP</td><td><span class="${p.stock <= 5 ? 'badge low-stock' : ''}">${p.stock} ${p.stock <= 5 ? '⚠️' : ''}</span></td>
         <td>${esc(lang === 'ar' ? (p.category_ar||'—') : (p.category_en||'—'))}</td>
         <td>${p.featured ? '⭐' : '—'}</td>
@@ -888,19 +956,21 @@ async function loadProducts() {
 async function openProductModal(id = null) {
   editingProductId = id;
   document.getElementById('productModalTitle').textContent = id ? t('تعديل المنتج','Edit Product') : t('إضافة منتج جديد','Add New Product');
-  ['pNameAr','pNameEn','pDescAr','pDescEn','pPrice','pStock','pImages'].forEach(f => document.getElementById(f).value = '');
+  ['pNameAr','pNameEn','pDescAr','pDescEn','pPrice','pStock','pImages','pSku','pVariants'].forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
   document.getElementById('pFeatured').value = '0';
   document.getElementById('pImagePreview').style.display = 'none';
   document.getElementById('pImageUpload').value = '';
   document.getElementById('pImageName').textContent = '';
-  document.getElementById('pFeatured').value = '0';
   const catRes = await fetch(API + '/products'); const catData = await catRes.json();
   document.getElementById('pCategory').innerHTML = (catData.categories||[]).map(c => `<option value="${c.id}">${c.name_ar} / ${c.name_en}</option>`).join('');
   if (id) {
     try { const data = await api('/admin/products'); const p = data.products.find(x => x.id === id);
       if (p) { const fm = {pNameAr:'name_ar',pNameEn:'name_en',pDescAr:'description_ar',pDescEn:'description_en'}; Object.entries(fm).forEach(([id,key]) => document.getElementById(id).value = p[key]||'');
-        document.getElementById('pPrice').value = p.price; document.getElementById('pStock').value = p.stock; document.getElementById('pCategory').value = p.category_id; document.getElementById('pFeatured').value = p.featured;
-        document.getElementById('pImages').value = JSON.parse(p.images||'[]').join('\n'); }
+        document.getElementById('pPrice').value = p.price; document.getElementById('pStock').value = p.stock;
+        document.getElementById('pSku').value = p.sku||'';
+        document.getElementById('pCategory').value = p.category_id; document.getElementById('pFeatured').value = p.featured;
+        document.getElementById('pImages').value = (p.images ? (Array.isArray(p.images) ? p.images : JSON.parse(p.images||'[]')) : []).join('\n');
+        document.getElementById('pVariants').value = p.variants ? JSON.stringify(p.variants, null, 2) : '[]'; }
     } catch(e) { showToast(e.message, 'error'); }
   }
   document.getElementById('productModal').classList.add('show');
@@ -958,13 +1028,22 @@ async function saveProduct() {
     description_ar: document.getElementById('pDescAr').value, description_en: document.getElementById('pDescEn').value,
     price: parseFloat(document.getElementById('pPrice').value), stock: parseInt(document.getElementById('pStock').value)||0,
     category_id: parseInt(document.getElementById('pCategory').value), featured: parseInt(document.getElementById('pFeatured').value),
+    sku: document.getElementById('pSku').value || null,
     images: document.getElementById('pImages').value.split('\n').filter(s=>s.trim()) };
+  try {
+    const variantsText = document.getElementById('pVariants').value;
+    if (variantsText && variantsText.trim()) {
+      try { body.variants = JSON.parse(variantsText); } catch(e) { return showToast('Invalid JSON in variants field', 'error'); }
+    }
+  } catch(e) { /* ignore */ }
   if (!body.name_ar || !body.name_en) return showToast(t('الاسم مطلوب','Name required'), 'error');
   try {
     if (editingProductId) { await api('/admin/products/' + editingProductId, { method: 'PUT', body: JSON.stringify(body) }); showToast(t('تم التعديل','Updated')); }
     else { await api('/admin/products', { method: 'POST', body: JSON.stringify(body) }); showToast(t('تمت الإضافة','Added')); }
     closeProductModal(); loadProducts();
-  } catch(e) { showToast(e.message, 'error'); }
+  } catch(e) { showToast(e.message, 'error');
+    console.error('Save product error:', e, JSON.stringify(body));
+  }
 }
 
 async function deleteProduct(id) {
@@ -1240,6 +1319,48 @@ async function exportOrders() {
     showToast(t('تم التصدير','Exported'));
   } catch(e) { showToast(e.message, 'error'); }
 }
+
+async function importCSV() {
+  const text = document.getElementById('csvInput').value.trim();
+  if (!text) return showToast(t('أدخل بيانات CSV','Enter CSV data'), 'error');
+  const hasHeader = document.getElementById('csvHasHeader').checked;
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length < 1) return showToast(t('بيانات غير كافية','Not enough data'), 'error');
+  const headers = hasHeader ? parseCSVLine(lines[0]) : ['name_ar','name_en','price','stock','sku','description_ar','description_en','category_name_en','featured'];
+  const data = (hasHeader ? lines.slice(1) : lines).map(l => {
+    const vals = parseCSVLine(l);
+    const row = {};
+    headers.forEach((h, i) => row[h.trim()] = vals[i] ? vals[i].trim() : '');
+    return row;
+  });
+  if (!data.length) return showToast(t('لا توجد بيانات','No data'), 'error');
+  const btn = document.querySelector('#importModal .btn-primary');
+  btn.disabled = true; btn.textContent = t('جارٍ الاستيراد...','Importing...');
+  try {
+    const result = await api('/admin/products/import', { method: 'POST', body: JSON.stringify({ rows: data }) });
+    const el = document.getElementById('importResult');
+    el.style.display = 'block';
+    let html = `<div style="font-size:13px;padding:10px;border-radius:8px;background:var(--success);color:#fff">✅ ${t('تم الاستيراد','Imported')}: ${result.imported} ${t('منتج','product(s)')}</div>`;
+    if (result.errors?.length) {
+      html += `<div style="margin-top:8px;font-size:12px;max-height:120px;overflow-y:auto">${result.errors.map(e => `<div style="color:var(--danger);padding:2px 0">⚠️ Row ${e.row}: ${e.error}</div>`).join('')}</div>`;
+    }
+    el.innerHTML = html;
+    loadProducts();
+  } catch(e) { showToast(e.message, 'error'); }
+  btn.disabled = false; btn.textContent = t('استيراد','Import');
+}
+function parseCSVLine(line) {
+  const result = []; let cur = ''; let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { if (inQ && line[i+1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
+    else if (c === ',' && !inQ) { result.push(cur); cur = ''; }
+    else cur += c;
+  }
+  result.push(cur);
+  return result;
+}
+function showImportModal() { document.getElementById('importModal').classList.add('show'); document.getElementById('csvInput').value = ''; document.getElementById('importResult').style.display = 'none'; }
 
 // ─── PRINT INVOICE ───
 async function printInvoice(id) {
