@@ -886,6 +886,20 @@ async function showOrderDetail(id) {
   try {
     const o = await api('/admin/orders/' + id);
     const items = o.items.map(i => `• ${i.name_ar || i.name} × ${i.quantity} — ${Math.round(i.price * i.quantity)} EGP`).join('<br>');
+    const history = o.status_history || [];
+    const historyHtml = history.length ? `<div style="margin:12px 0"><div style="font-weight:600;font-size:13px;color:var(--text2);margin-bottom:8px">${t('تتبع الطلب','Order Timeline')}</div>
+      ${history.map(h => `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--primary);flex-shrink:0"></span>
+        <span style="flex:1"><span class="badge ${h.status}" style="font-size:11px">${t(h.status,h.status)}</span>${h.note ? ' — ' + esc(h.note) : ''}</span>
+        <span style="font-size:11px;color:var(--text2)">${new Date(h.timestamp).toLocaleString()}</span>
+      </div>`).join('')}
+    </div>` : '';
+    const deliveryHtml = `<div class="field" style="grid-column:1/-1"><div class="label">${t('تاريخ التوصيل','Est. Delivery')}</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="date" id="estDelivery" value="${o.estimated_delivery || ''}" style="flex:1">
+        <button class="btn btn-sm btn-outline" onclick="saveDeliveryDate(${o.id})">${t('حفظ','Save')}</button>
+      </div>
+    </div>`;
     document.getElementById('orderDetailContent').innerHTML = `
       <div class="order-detail-grid">
         <div class="field"><div class="label">${t('رقم الطلب','Order #')}</div><div class="value">#${o.id}</div></div>
@@ -899,18 +913,41 @@ async function showOrderDetail(id) {
         <div class="field" style="grid-column:1/-1"><div class="label">${t('العنوان','Address')}</div><div class="value">${o.shipping_address || '—'}</div></div>
         <div class="field" style="grid-column:1/-1"><div class="label">${t('ملاحظات','Notes')}</div><div class="value">${o.notes || '—'}</div></div>
         <div class="field" style="grid-column:1/-1"><div class="label">${t('المنتجات','Items')}</div><div class="value">${items}</div></div>
+        ${deliveryHtml}
         <div class="field" style="grid-column:1/-1"><div class="label">${t('ملاحظات داخلية','Internal Notes')}</div>
           <textarea id="internalNotes" style="width:100%;min-height:60px;font-size:13px" placeholder="${t('ملاحظات للأدمن فقط','Admin-only notes...')}">${o.internal_notes || ''}</textarea>
           <button class="btn btn-sm btn-outline" onclick="saveInternalNotes(${o.id})" style="margin-top:4px">💾 ${t('حفظ الملاحظات','Save Notes')}</button>
         </div>
       </div>
-      <label style="font-weight:600;font-size:13px;color:var(--text2)">${t('تحديث الحالة','Status')}:</label>
-      <select class="status-select" onchange="updateOrderStatus(${o.id}, this.value)" style="margin-right:8px">
-        ${['pending','confirmed','shipped','delivered','cancelled'].map(s => `<option ${s===o.status?'selected':''} value="${s}">${s}</option>`).join('')}
-      </select>`;
+      ${historyHtml}
+      <label style="font-weight:600;font-size:13px;color:var(--text2);display:block;margin-top:12px">${t('تحديث الحالة','Status')}:</label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px">
+        <select class="status-select" id="statusSelect" style="flex:1;min-width:120px">
+          ${['pending','confirmed','shipped','delivered','cancelled'].map(s => `<option ${s===o.status?'selected':''} value="${s}">${s}</option>`).join('')}
+        </select>
+        <input id="statusNote" placeholder="${t('ملاحظة (اختياري)','Note (optional)')}" style="flex:2;min-width:150px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px">
+        <button class="btn btn-primary btn-sm" onclick="updateOrderStatusWithHistory(${o.id})">${t('تحديث','Update')}</button>
+      </div>`;
     document.getElementById('printInvoiceBtn').style.display = '';
     document.getElementById('printInvoiceBtn').onclick = () => printInvoice(id);
     document.getElementById('orderModal').classList.add('show');
+  } catch(e) { showToast(e.message, 'error'); }
+}
+
+async function saveDeliveryDate(id) {
+  const estimated_delivery = document.getElementById('estDelivery').value;
+  try { await api('/admin/orders/' + id + '/status', { method: 'PUT', body: JSON.stringify({ status: document.getElementById('statusSelect').value, estimated_delivery }) }); showToast(t('تم الحفظ','Saved')); }
+  catch(e) { showToast(e.message, 'error'); }
+}
+
+async function updateOrderStatusWithHistory(id) {
+  const status = document.getElementById('statusSelect').value;
+  const note = document.getElementById('statusNote').value;
+  try {
+    await api('/admin/orders/' + id + '/status', { method: 'PUT', body: JSON.stringify({ status, note }) });
+    showToast(t('تم تحديث الطلب','Order updated'));
+    showOrderDetail(id);
+    loadOrders();
   } catch(e) { showToast(e.message, 'error'); }
 }
 

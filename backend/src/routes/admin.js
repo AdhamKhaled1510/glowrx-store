@@ -61,16 +61,26 @@ router.get('/orders/:id', adminAuth, async (req, res) => {
   const order = await dbGet('SELECT o.*, u.name as user_name, u.email as user_email, u.phone as user_phone FROM orders o LEFT JOIN users u ON o.user_id = u.id WHERE o.id = ?', [req.params.id]);
   if (!order) return res.status(404).json({ error: 'Order not found' });
   order.items = JSON.parse(order.items);
+  order.status_history = JSON.parse(order.status_history || '[]');
   res.json(order);
 });
 
 router.put('/orders/:id/status', adminAuth, async (req, res) => {
-  const { status, payment_status } = req.body;
+  const { status, payment_status, estimated_delivery } = req.body;
   if (!status) return res.status(400).json({ error: 'Status is required' });
   const valid = ['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'];
   if (!valid.includes(status)) return res.status(400).json({ error: 'Invalid status' });
-  await dbRun('UPDATE orders SET status = ?, payment_status = COALESCE(?, payment_status) WHERE id = ?', [status, payment_status || null, req.params.id]);
-  res.json({ message: 'Order updated' });
+  const order = await dbGet('SELECT status, status_history FROM orders WHERE id = ?', [req.params.id]);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  let history = JSON.parse(order.status_history || '[]');
+  history.push({ status, timestamp: new Date().toISOString(), note: req.body.note || '' });
+  const updates = ["status = ?", "status_history = ?"];
+  const params = [status, JSON.stringify(history)];
+  if (payment_status !== undefined) { updates.push("payment_status = ?"); params.push(payment_status); }
+  if (estimated_delivery !== undefined) { updates.push("estimated_delivery = ?"); params.push(estimated_delivery); }
+  params.push(req.params.id);
+  await dbRun(`UPDATE orders SET ${updates.join(', ')} WHERE id = ?`, params);
+  res.json({ message: 'Order updated', history });
 });
 
 // --- Products ---
