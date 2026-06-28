@@ -3,7 +3,6 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, SafeAreaView, ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useLanguage } from '../context/LanguageContext';
 import { login, register } from '../api';
@@ -43,6 +42,9 @@ export default function AuthScreen({ navigation }) {
 
   const handleGoogleLogin = async () => {
     try {
+      let WebBrowser;
+      try { WebBrowser = require('expo-web-browser'); } catch {}
+      if (!WebBrowser) { Alert.alert('', lang === 'ar' ? 'Google login غير متاح' : 'Google login not available'); return; }
       const redirectUri = Linking.createURL('auth/callback');
       const result = await WebBrowser.openAuthSessionAsync(
         `${API_URL}/auth/google?redirect_uri=${encodeURIComponent(redirectUri)}`,
