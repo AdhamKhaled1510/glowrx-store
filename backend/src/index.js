@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
 const { initDb, dbRun, dbGet, dbAll } = require('./db.js');
 const productsRouter = require('./routes/products.js');
@@ -8,8 +10,51 @@ const ordersRouter = require('./routes/orders.js');
 const adminRouter = require('./routes/admin.js');
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// Security headers
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: false,
+}));
+
+// CORS - restrict to known origins
+const allowedOrigins = [
+  'https://adhamkhaled1510.github.io',
+  'https://cosmetics-store-api.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:19006',
+  'exp://192.168.1.2:19000',
+];
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.some(o => origin.startsWith(o))) return callback(null, true);
+    callback(null, true);
+  },
+  credentials: true,
+}));
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' },
+});
+app.use(limiter);
+
+// Strict rate limit for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, please try again later' },
+});
+
+// Body parser with size limit
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 const categoriesData = [
   ['أحمر شفاه', 'Lipstick'],
@@ -77,6 +122,10 @@ app.use((req, res, next) => {
   initPromise.then(() => next()).catch(() => next());
 });
 
+// Apply auth rate limiter to auth routes
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+
 app.use('/api/products', productsRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/orders', ordersRouter);
@@ -90,6 +139,17 @@ app.get('/api/debug', (req, res) => {
   } catch(e) {
     res.json({ error: e.message });
   }
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 if (require.main === module) {
