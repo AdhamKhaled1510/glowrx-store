@@ -98,17 +98,22 @@ app.use(async (req, res, next) => {
       const catCount = await dbGet("SELECT COUNT(*) as c FROM categories");
       if (!catCount || catCount.c === 0) {
         for (const c of categoriesData) await dbRun('INSERT INTO categories (name_ar, name_en) VALUES (?, ?)', c);
-      } else {
-        const cat1 = await dbGet("SELECT id FROM categories WHERE id = 1");
-        if (!cat1) {
-          await dbRun('DELETE FROM products');
-          await dbRun('DELETE FROM categories');
-          for (const c of categoriesData) await dbRun('INSERT INTO categories (name_ar, name_en) VALUES (?, ?)', c);
-        }
       }
       const prodCount = await dbGet("SELECT COUNT(*) as c FROM products");
       if (!prodCount || prodCount.c === 0) {
-        for (const p of productsData) await dbRun('INSERT INTO products (name_ar, name_en, description_ar, description_en, price, stock, category_id, featured, images) VALUES (?,?,?,?,?,?,?,?,?)', p);
+        const cats = await dbAll("SELECT id, name_en FROM categories");
+        const catMap = {};
+        const catNames = ['Lipstick', 'Eye Makeup', 'Foundation & Concealer', 'Skincare', 'Perfumes', 'Hair Care', 'Face Care'];
+        catNames.forEach((n, i) => {
+          const found = cats.find(c => c.name_en === n);
+          catMap[i + 1] = found ? found.id : null;
+        });
+        for (const p of productsData) {
+          const mappedP = [...p];
+          if (mappedP[6] && catMap[mappedP[6]]) mappedP[6] = catMap[mappedP[6]];
+          else mappedP[6] = null;
+          await dbRun('INSERT INTO products (name_ar, name_en, description_ar, description_en, price, stock, category_id, featured, images) VALUES (?,?,?,?,?,?,?,?,?)', mappedP);
+        }
       }
       const adminExists = await dbGet("SELECT id FROM users WHERE role = 'admin'");
       if (!adminExists) {
@@ -119,7 +124,7 @@ app.use(async (req, res, next) => {
       }
       ready = true;
     } catch (e) {
-      console.error('Init error:', e.message);
+      console.error('Init error:', e.message, e.stack?.split('\n')[0]);
       return res.status(500).json({ error: 'Init failed: ' + e.message });
     }
   }
