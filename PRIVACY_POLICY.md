@@ -3,7 +3,7 @@
 Last updated: June 27, 2026
 
 ## Introduction
-Welcome to GlowRX. This Privacy Policy explains how we collect, use, and protect your information when you use our mobile application.
+Welcome to Elshamy Glow. This Privacy Policy explains how we collect, use, and protect your information when you use our mobile application.
 
 ## Information We Collect
 - **Account Information**: Name, email address, phone number, and shipping address when you register.
@@ -23,7 +23,7 @@ Your data is stored securely on our servers. We use industry-standard security m
 We do not share your personal data with third parties except as necessary to process your orders (e.g., delivery services).
 
 ## Contact Us
-For any privacy-related questions, contact us at: glowrxapp@email.com
+For any privacy-related questions, contact us at: elshamyglowapp@email.com
 
 ## Changes to This Policy
 We may update this Privacy Policy from time to time. Changes will be posted on this page.
